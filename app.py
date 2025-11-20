@@ -9,7 +9,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# --- Configuration ---
+# --- Config ---
 READ_API_KEY = 'LK242E83RKWTR8GN'
 CHANNEL_ID = '3138431'  # Updated to your new Channel ID
 
