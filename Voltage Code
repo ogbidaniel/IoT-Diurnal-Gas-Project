@@ -1,0 +1,131 @@
+import time
+import csv
+import os
+import requests
+from datetime import datetime
+
+import board
+import busio
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
+# ----- ThingSpeak -----
+THINGSPEAK_API_KEY = "Y3A5PJEGVZN7VZ0O"   # insert Thingspeak Channel Api
+THINGSPEAK_URL = "https://api.thingspeak.com/update"
+
+# Upload interval in seconds
+UPDATE_INTERVAL = 60
+
+# ----- CSV Logging -----
+CSV_FILENAME = "gas_sensor_log.csv"
+
+# ----- Sensor Mapping -----
+# Updated to match your exact physical ADS1115 wiring layout
+SENSORS = {
+    "MQ137_NH3": 0,   # Your ADS A0
+    "MG811_CO2": 1,   # Your ADS A1
+    "MQ135_AQI": 2,   # Your ADS A2
+    "MQ4_CH4":   3    # Your ADS A3
+}
+
+# =========================================================
+# HARDWARE SETUP
+# =========================================================
+
+i2c = busio.I2C(board.SCL, board.SDA)
+ads = ADS.ADS1115(i2c)
+
+channels = {
+    name: AnalogIn(ads, channel)
+    for name, channel in SENSORS.items()
+}
+
+# =========================================================
+# CSV SETUP
+# =========================================================
+
+if not os.path.exists(CSV_FILENAME):
+    with open(CSV_FILENAME, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        # Table columns now align correctly with your physical layout
+        writer.writerow([
+            "timestamp",
+            "MQ137_NH3_voltage",
+            "MG811_CO2_voltage",
+            "MQ135_AQI_voltage",
+            "MQ4_CH4_voltage"
+        ])
+
+# =========================================================
+# MAIN LOOP
+# =========================================================
+
+print("==========================================")
+print(" Poultry Gas Monitoring Service Started ")
+print("==========================================")
+
+while True:
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # -------------------------------------------------
+        # READ SENSOR VOLTAGES
+        # -------------------------------------------------
+        mq137 = round(channels["MQ137_NH3"].voltage, 4)
+        mg811 = round(channels["MG811_CO2"].voltage, 4)
+        mq135 = round(channels["MQ135_AQI"].voltage, 4)
+        mq4   = round(channels["MQ4_CH4"].voltage, 4)
+
+        # -------------------------------------------------
+        # PRINT TO TERMINAL
+        # -------------------------------------------------
+        print(f"\n[{timestamp}]")
+        print(f"MQ137 (NH3) : {mq137} V")
+        print(f"MG811 (CO2) : {mg811} V")
+        print(f"MQ135 (AQI) : {mq135} V")
+        print(f"MQ4   (CH4) : {mq4} V")
+
+        # -------------------------------------------------
+        # SAVE TO CSV
+        # -------------------------------------------------
+        with open(CSV_FILENAME, mode="a", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                timestamp,
+                mq137,
+                mg811,
+                mq135,
+                mq4
+            ])
+
+        # -------------------------------------------------
+        # SEND TO THINGSPEAK
+        # -------------------------------------------------
+        payload = {
+            "api_key": THINGSPEAK_API_KEY,
+            # Raw voltages mapped to their matching text variables
+            "field3": mq137,
+            "field4": mg811,
+            "field5": mq135,
+            "field6": mq4
+        }
+
+        response = requests.get(
+            THINGSPEAK_URL,
+            params=payload,
+            timeout=10
+        )
+
+        if response.status_code == 200 and response.text != "0":
+            print(f"ThingSpeak Upload Success | Entry: {response.text}")
+        else:
+            print(f"ThingSpeak Upload Failed | Response: {response.text}")
+
+    except Exception as e:
+        print(f"ERROR: {e}")
+
+    time.sleep(UPDATE_INTERVAL)
